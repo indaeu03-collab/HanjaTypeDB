@@ -67,19 +67,20 @@ BOOL CHanjaTypeDBDlg::OnInitDialog()
     SetIcon(m_hIcon, TRUE);
     SetIcon(m_hIcon, FALSE);
 
-    // 컨트롤 포인터 가져오기 (기존 ID들)
+    // 컨트롤 포인터 가져오기
     m_pSheetCtrl = (CStatic*)GetDlgItem(IDC_STATIC_SHEET);
     m_pCharCtrl = (CStatic*)GetDlgItem(IDC_STATIC_CHARIMG);
     m_pInfoCtrl = (CStatic*)GetDlgItem(IDC_STATIC_INFO);
-
-    // ⭐ [수정됨] 요청하신 ID(IDC_STATIC_SELECTCHAR)로 연결했습니다!
     m_pSelCharCtrl = (CStatic*)GetDlgItem(IDC_STATIC_SELECTCHAR);
 
-    // 리스트 설정
+    // ⭐ [수정됨] "구분" 칸 삭제 -> "장, 행, 번"만 표시
     m_listCompose.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-    m_listCompose.InsertColumn(0, _T("장"), LVCFMT_CENTER, 40);
-    m_listCompose.InsertColumn(1, _T("행"), LVCFMT_CENTER, 40);
-    m_listCompose.InsertColumn(2, _T("번"), LVCFMT_CENTER, 40);
+
+    while (m_listCompose.DeleteColumn(0)); // 기존 컬럼 싹 지우기
+
+    m_listCompose.InsertColumn(0, _T("장"), LVCFMT_CENTER, 50);
+    m_listCompose.InsertColumn(1, _T("행"), LVCFMT_CENTER, 50);
+    m_listCompose.InsertColumn(2, _T("번"), LVCFMT_CENTER, 50);
 
     return TRUE;
 }
@@ -95,7 +96,6 @@ void CHanjaTypeDBDlg::OnSysCommand(UINT nID, LPARAM lParam)
         CDialogEx::OnSysCommand(nID, lParam);
     }
 }
-
 // =======================
 // CSV 로드 후 장 이미지
 // =======================
@@ -107,6 +107,9 @@ void CHanjaTypeDBDlg::OnBnClickedButtonOpen()
     if (dlg.DoModal() != IDOK)
         return;
 
+    // ⭐ [핵심] 딱 이 한 줄이면 됩니다!
+    // 이 변수가 있는 동안 마우스가 '모래시계(대기)' 모양으로 고정됩니다.
+    CWaitCursor wait;
     m_bookPath = dlg.GetPathName();
 
     if (!m_db.ReadCSVFile(m_bookPath))
@@ -115,32 +118,40 @@ void CHanjaTypeDBDlg::OnBnClickedButtonOpen()
         return;
     }
 
-    // ==========================================
-    // ⭐ 폴더 이름(책 이름) 추출해서 콤보박스에 넣기
-    // ==========================================
-    // 1. 파일 경로에서 폴더 경로만 떼어내기
+    // 1. 책 이름 콤보박스 설정
     CString folderPath = m_bookPath.Left(m_bookPath.ReverseFind('\\'));
-
-    // 2. 맨 마지막 폴더 이름 가져오기 (예: 월인천강지곡 권상)
     int nPos = folderPath.ReverseFind('\\');
     CString bookName = folderPath.Mid(nPos + 1);
 
-    // 3. 콤보박스(IDC_EDIT_BOOKNAME)에 넣고 선택하기
-    m_comboBook.ResetContent();      // 기존 내용 지우기
-    m_comboBook.AddString(bookName); // 책 이름 추가
-    m_comboBook.SetCurSel(0);        // 첫 번째 항목 선택
+    m_comboBook.ResetContent();
+    m_comboBook.AddString(bookName);
+    m_comboBook.SetCurSel(0);
 
-    // ==========================================
+    // 2. 첫 번째 글자(1행 1번) 자동 선택
+    if (m_db.GetChars().size() > 0)
+    {
+        m_selectedIndex = 0;
+        m_curSheet = m_db.GetChars()[0].m_sheet;
+    }
+    else
+    {
+        m_selectedIndex = -1;
+        m_curSheet = 1;
+    }
 
-    m_curSheet = 1;
+    // 3. 화면 갱신
     LoadSheetImage();
+    UpdateSelectedInfo();
+    ShowSelectedCharImage();
 
-    // 스핀 컨트롤 설정
+    // 4. 스핀 컨트롤 설정
     m_spinSheet.SetBuddy(GetDlgItem(IDC_EDIT_SHEET));
     m_spinSheet.SetRange(1, m_db.GetSheetCount());
-    m_spinSheet.SetPos(1);
+    m_spinSheet.SetPos(m_curSheet);
 
-    SetDlgItemInt(IDC_EDIT_SHEET, 1);
+    SetDlgItemInt(IDC_EDIT_SHEET, m_curSheet);
+
+    // (함수가 끝나면 커서는 자동으로 원래 화살표로 돌아옵니다)
 }
 // =======================
 // 장 이미지 + 박스
@@ -289,16 +300,14 @@ void CHanjaTypeDBDlg::UpdateSelectedInfo()
         c.m_char.GetString(), c.m_sheet, c.m_line, c.m_order);
     m_pInfoCtrl->SetWindowText(text);
 
-    // 2. ⭐ [수정됨] 같은 '글자(m_char)'가 몇 개인지 세기
-    // (기존에는 m_type으로 셌는데, 이게 아니라 m_char가 모양 기준이었습니다!)
+    // 2. 같은 '글자(m_char)'가 몇 개인지 세기
     int totalCount = 0;
     int currentRank = 0;
     const auto& allChars = m_db.GetChars();
 
     for (int i = 0; i < (int)allChars.size(); ++i)
     {
-        // ⭐ 여기가 핵심 변경 포인트 (m_type -> m_char)
-        if (allChars[i].m_char == c.m_char) 
+        if (allChars[i].m_char == c.m_char)
         {
             totalCount++;
             if (i == m_selectedIndex) currentRank = totalCount;
@@ -307,36 +316,81 @@ void CHanjaTypeDBDlg::UpdateSelectedInfo()
 
     // 3. 화면 표시
     SetDlgItemInt(IDC_EDIT_TYPE, currentRank);
-    
+
     CString sTotal;
     sTotal.Format(_T("/ %d개"), totalCount);
     SetDlgItemText(IDC_STATIC_TYPES, sTotal);
 
     ShowComposeList(c.m_char);
 }
-
 // =======================
-// 구성 글자 리스트
+// 구성 글자 리스트 (구분 없이 위치만 표시)
 // =======================
 void CHanjaTypeDBDlg::ShowComposeList(const CString& targetChar)
 {
     m_listCompose.DeleteAllItems();
+    if (targetChar.GetLength() < 12) return;
 
+    // 1. 검색할 코드 만들기 (나머지는 0으로 채움)
+    CString codeCho = targetChar.Left(4) + _T("00000000");
+    CString codeJung = _T("0000") + targetChar.Mid(4, 4) + _T("0000");
+    CString codeJong = _T("00000000") + targetChar.Right(4);
+
+    // 검색 대상 (0:초성, 1:중성, 2:종성)
+    std::vector<CString> targetCodes;
+    targetCodes.push_back(codeCho);
+    targetCodes.push_back(codeJung);
+
+    if (targetChar.Right(4) != _T("0000"))
+        targetCodes.push_back(codeJong);
+    else
+        targetCodes.push_back(_T("")); // 받침 없으면 빈 거
+
+    // 2. DB에서 위치 찾기
+    const auto& chars = m_db.GetChars();
     int row = 0;
-    for (const auto& c : m_db.GetChars())
-    {
-        if (c.m_char == targetChar)
-        {
-            CString sSheet, sLine, sOrder;
-            sSheet.Format(_T("%d"), c.m_sheet);
-            sLine.Format(_T("%d"), c.m_line);
-            sOrder.Format(_T("%d"), c.m_order);
 
-            m_listCompose.InsertItem(row, sSheet);
-            m_listCompose.SetItemText(row, 1, sLine);
-            m_listCompose.SetItemText(row, 2, sOrder);
+    for (const auto& code : targetCodes)
+    {
+        // 받침 없는 경우 처리 ("-" 표시)
+        if (code.IsEmpty())
+        {
+            int nItem = m_listCompose.InsertItem(row, _T("-"));
+            m_listCompose.SetItemText(nItem, 1, _T("-"));
+            m_listCompose.SetItemText(nItem, 2, _T("-"));
             row++;
+            continue;
         }
+
+        bool bFound = false;
+
+        // DB 검색
+        for (const auto& c : chars)
+        {
+            if (c.m_char == code) // 찾았다!
+            {
+                CString sSheet, sLine, sOrder;
+                sSheet.Format(_T("%d"), c.m_sheet);
+                sLine.Format(_T("%d"), c.m_line);
+                sOrder.Format(_T("%d"), c.m_order);
+
+                // ⭐ [수정됨] 첫 번째 칸(0번)에 바로 '장' 번호를 넣습니다.
+                int nItem = m_listCompose.InsertItem(row, sSheet);
+                m_listCompose.SetItemText(nItem, 1, sLine);
+                m_listCompose.SetItemText(nItem, 2, sOrder);
+
+                bFound = true;
+                break;
+            }
+        }
+
+        if (!bFound) // 못 찾았으면 "-"
+        {
+            int nItem = m_listCompose.InsertItem(row, _T("-"));
+            m_listCompose.SetItemText(nItem, 1, _T("-"));
+            m_listCompose.SetItemText(nItem, 2, _T("-"));
+        }
+        row++;
     }
 }
 
@@ -501,27 +555,26 @@ void CHanjaTypeDBDlg::OnDeltaposSpinSheet(NMHDR* pNMHDR, LRESULT* pResult)
 // =======================
 void CHanjaTypeDBDlg::UpdateStatistics()
 {
-    // DB가 비어있으면 아무것도 안 함
     if (m_db.GetChars().empty()) return;
 
     const auto& chars = m_db.GetChars();
 
-    // 1. 책 전체 통계용 (중복 제거를 위해 set 사용)
-    std::set<CString> totalCharKinds; // 글자 종류 (가, 나, 다...)
-    std::set<CString> totalTypeKinds; // 활자 종류 (자료번호 기준)
+    // 1. 책 전체 통계용
+    std::set<CString> totalCharKinds;
+    std::set<int> totalTypeKinds;      // ⭐ [수정됨] CString -> int
 
     // 2. 장내(현재 페이지) 통계용
     int sheetCount = 0;
     std::set<CString> sheetCharKinds;
-    std::set<CString> sheetTypeKinds;
+    std::set<int> sheetTypeKinds;      // ⭐ [수정됨] CString -> int
 
     for (const auto& c : chars)
     {
-        // [책 전체] 무조건 넣기
+        // [책 전체]
         totalCharKinds.insert(c.m_char);
         totalTypeKinds.insert(c.m_type);
 
-        // [장내] 현재 페이지랑 같으면 넣기
+        // [장내]
         if (c.m_sheet == m_curSheet)
         {
             sheetCount++;
@@ -530,75 +583,89 @@ void CHanjaTypeDBDlg::UpdateStatistics()
         }
     }
 
-    // 화면에 글자 예쁘게 출력하기
     CString str;
 
     // [책 전체] 출력
-    str.Format(_T("%d"), (int)chars.size());
+    str.Format(_T("%d 개"), (int)chars.size());
     SetDlgItemText(IDC_STATIC_T_COUNT, str);
 
-    str.Format(_T("%d"), (int)totalCharKinds.size());
+    str.Format(_T("%d 종"), (int)totalCharKinds.size());
     SetDlgItemText(IDC_STATIC_T_KIND, str);
 
-    str.Format(_T("%d"), (int)totalTypeKinds.size());
+    str.Format(_T("%d 개"), (int)totalTypeKinds.size());
     SetDlgItemText(IDC_STATIC_T_TYPE, str);
 
     // [장내] 출력
-    str.Format(_T("%d"), sheetCount);
+    str.Format(_T("%d 개"), sheetCount);
     SetDlgItemText(IDC_STATIC_S_COUNT, str);
 
-    str.Format(_T("%d"), (int)sheetCharKinds.size());
+    str.Format(_T("%d 종"), (int)sheetCharKinds.size());
     SetDlgItemText(IDC_STATIC_S_KIND, str);
 
-    str.Format(_T("%d"), (int)sheetTypeKinds.size());
+    str.Format(_T("%d 개"), (int)sheetTypeKinds.size());
     SetDlgItemText(IDC_STATIC_S_TYPE, str);
 }
 
 // =======================
-// 리스트 클릭 시 해당 글자로 이동
+// 리스트 클릭 시 해당 위치로 이동
+// =======================
+// =======================
+// 리스트 클릭 시 해당 위치로 이동
 // =======================
 void CHanjaTypeDBDlg::OnNMClickListChars(NMHDR* pNMHDR, LRESULT* pResult)
 {
     LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 
-    // 선택된 줄이 없으면 무시
     int nItem = pNMItemActivate->iItem;
     if (nItem == -1) {
         *pResult = 0;
         return;
     }
 
-    // 리스트에 적힌 장, 행, 번호 가져오기
-    CString sSheet = m_listCompose.GetItemText(nItem, 0);
-    CString sLine = m_listCompose.GetItemText(nItem, 1);
-    CString sOrder = m_listCompose.GetItemText(nItem, 2);
+    // ⭐ [수정됨] 칸 번호가 당겨졌습니다. (1,2,3 -> 0,1,2)
+    CString sSheet = m_listCompose.GetItemText(nItem, 0); // 장
+    CString sLine = m_listCompose.GetItemText(nItem, 1); // 행
+    CString sOrder = m_listCompose.GetItemText(nItem, 2); // 번
+
+    // "-" (없음) 이면 무시
+    if (sSheet == _T("-") || sSheet.IsEmpty()) {
+        *pResult = 0;
+        return;
+    }
 
     int targetSheet = _ttoi(sSheet);
     int targetLine = _ttoi(sLine);
     int targetOrder = _ttoi(sOrder);
 
-    // 1. 다른 페이지면 페이지 이동
+    // 1. 페이지 이동
     if (targetSheet != m_curSheet)
     {
         m_curSheet = targetSheet;
-        SetDlgItemInt(IDC_EDIT_SHEET, m_curSheet); // 스핀 컨트롤 옆 숫자 갱신
+        SetDlgItemInt(IDC_EDIT_SHEET, m_curSheet);
     }
 
-    // 2. 해당 글자 찾아서 선택하기 (DB 검색)
+    // 2. 해당 위치의 글자 선택
     const auto& chars = m_db.GetChars();
     for (int i = 0; i < (int)chars.size(); ++i)
     {
         const auto& c = chars[i];
         if (c.m_sheet == targetSheet && c.m_line == targetLine && c.m_order == targetOrder)
         {
-            m_selectedIndex = i; // 찾았다! 선택 인덱스 업데이트
+            m_selectedIndex = i;
             break;
         }
     }
 
     // 3. 화면 갱신
     LoadSheetImage();
-    UpdateSelectedInfo();
+
+    if (m_pInfoCtrl && m_selectedIndex >= 0)
+    {
+        const auto& c = chars[m_selectedIndex];
+        CString text;
+        text.Format(_T("%s\n\n%d장 %d행 %d번"), c.m_char.GetString(), c.m_sheet, c.m_line, c.m_order);
+        m_pInfoCtrl->SetWindowText(text);
+    }
     ShowSelectedCharImage();
 
     *pResult = 0;
@@ -606,9 +673,6 @@ void CHanjaTypeDBDlg::OnNMClickListChars(NMHDR* pNMHDR, LRESULT* pResult)
 
 // =======================
 // 활자 정보 스핀 컨트롤 (같은 활자 찾아서 이동)
-// =======================
-// =======================
-// 활자 정보 스핀 컨트롤 (같은 글자 찾아서 이동)
 // =======================
 void CHanjaTypeDBDlg::OnDeltaposSpinType(NMHDR* pNMHDR, LRESULT* pResult)
 {
@@ -619,15 +683,13 @@ void CHanjaTypeDBDlg::OnDeltaposSpinType(NMHDR* pNMHDR, LRESULT* pResult)
         return;
     }
 
-    // 1. 현재 글자(m_char)와 똑같은 것들을 다 찾음
     std::vector<int> sameCharIndices;
     const auto& allChars = m_db.GetChars();
-    CString currentChar = allChars[m_selectedIndex].m_char; // ⭐ m_type -> m_char 변경
+    CString currentChar = allChars[m_selectedIndex].m_char;
 
     int currentIndexInList = -1;
     for (int i = 0; i < (int)allChars.size(); ++i)
     {
-        // ⭐ 핵심 변경: 글자 코드가 같은지 비교
         if (allChars[i].m_char == currentChar)
         {
             if (i == m_selectedIndex) currentIndexInList = (int)sameCharIndices.size();
@@ -640,24 +702,20 @@ void CHanjaTypeDBDlg::OnDeltaposSpinType(NMHDR* pNMHDR, LRESULT* pResult)
         return;
     }
 
-    // 2. 위/아래 버튼에 따라 순서 이동
     int change = 0;
-    if (pNMUpDown->iDelta < 0) change = 1;  // 위 버튼: 다음
-    if (pNMUpDown->iDelta > 0) change = -1; // 아래 버튼: 이전
+    if (pNMUpDown->iDelta < 0) change = 1;
+    if (pNMUpDown->iDelta > 0) change = -1;
 
     int nextIndexInList = currentIndexInList + change;
 
-    // 범위 체크
     if (nextIndexInList < 0) nextIndexInList = 0;
     if (nextIndexInList >= (int)sameCharIndices.size()) nextIndexInList = (int)sameCharIndices.size() - 1;
 
-    // 3. 이동
     if (nextIndexInList != currentIndexInList)
     {
         int newGlobalIndex = sameCharIndices[nextIndexInList];
         const auto& target = allChars[newGlobalIndex];
 
-        // 페이지가 다르면 이동
         if (target.m_sheet != m_curSheet)
         {
             m_curSheet = target.m_sheet;
@@ -666,7 +724,6 @@ void CHanjaTypeDBDlg::OnDeltaposSpinType(NMHDR* pNMHDR, LRESULT* pResult)
 
         m_selectedIndex = newGlobalIndex;
 
-        // 화면 갱신
         LoadSheetImage();
         UpdateSelectedInfo();
         ShowSelectedCharImage();

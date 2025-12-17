@@ -22,15 +22,14 @@ BOOL CTypeDB::ReadCSVFile(const CString& path)
         std::string token;
         SCharInfo c;
 
-        // 1. 글자
+        // 1. 글자 (CString)
         std::getline(ss, token, ','); c.m_char = token.c_str();
 
-        // 2. 자료번호 (⭐ 여기가 핵심 수정됨)
+        // 2. 자료번호 (⭐ int로 변환)
         std::getline(ss, token, ',');
-        c.m_type = token.c_str(); // 문자로 받기
-        c.m_type.Trim();          // 앞뒤 공백 제거 (매우 중요!)
+        c.m_type = atoi(token.c_str()); // PPT 기준에 맞춰 int로 변환
 
-        // 3. 나머지 숫자들
+        // 3. 나머지 정보들 (int)
         std::getline(ss, token, ','); c.m_sheet = atoi(token.c_str());
         std::getline(ss, token, ','); c.m_sx = atoi(token.c_str());
         std::getline(ss, token, ','); c.m_sy = atoi(token.c_str());
