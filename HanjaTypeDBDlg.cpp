@@ -43,10 +43,8 @@ void CHanjaTypeDBDlg::DoDataExchange(CDataExchange* pDX)
     CDialogEx::DoDataExchange(pDX);
     DDX_Control(pDX, IDC_LIST_CHARS, m_listCompose);
     DDX_Control(pDX, IDC_SPIN_SHEET, m_spinSheet);
-
-    // ⭐ [수정됨] ID를 IDC_EDIT_BOOKNAME으로 변경했습니다!
-    // (변수 이름 m_comboBook은 그대로 써도 상관없습니다)
     DDX_Control(pDX, IDC_EDIT_BOOKNAME, m_comboBook);
+    DDX_Control(pDX, IDC_SPIN_TYPE, m_spinType);
 }
 
 BEGIN_MESSAGE_MAP(CHanjaTypeDBDlg, CDialogEx)
@@ -56,9 +54,10 @@ BEGIN_MESSAGE_MAP(CHanjaTypeDBDlg, CDialogEx)
     ON_BN_CLICKED(IDC_BUTTON_OPEN, &CHanjaTypeDBDlg::OnBnClickedButtonOpen)
     ON_WM_LBUTTONDOWN()
     ON_NOTIFY(UDN_DELTAPOS, IDC_SPIN_SHEET, &CHanjaTypeDBDlg::OnDeltaposSpinSheet)
-
-    // ⭐ [추가] 리스트 클릭하면 함수 실행 연결
     ON_NOTIFY(NM_CLICK, IDC_LIST_CHARS, &CHanjaTypeDBDlg::OnNMClickListChars)
+
+    // ⭐ [추가] 활자 스핀 컨트롤 클릭 연결
+    ON_NOTIFY(UDN_DELTAPOS, IDC_SPIN_TYPE, &CHanjaTypeDBDlg::OnDeltaposSpinType)
 END_MESSAGE_MAP()
 
 BOOL CHanjaTypeDBDlg::OnInitDialog()
@@ -284,14 +283,35 @@ void CHanjaTypeDBDlg::UpdateSelectedInfo()
 
     const auto& c = m_db.GetChars()[m_selectedIndex];
 
+    // 1. 기본 정보 표시
     CString text;
     text.Format(_T("%s\n\n%d장 %d행 %d번"),
-        c.m_char.GetString(),
-        c.m_sheet,
-        c.m_line,
-        c.m_order);
-
+        c.m_char.GetString(), c.m_sheet, c.m_line, c.m_order);
     m_pInfoCtrl->SetWindowText(text);
+
+    // 2. ⭐ [수정됨] 같은 '글자(m_char)'가 몇 개인지 세기
+    // (기존에는 m_type으로 셌는데, 이게 아니라 m_char가 모양 기준이었습니다!)
+    int totalCount = 0;
+    int currentRank = 0;
+    const auto& allChars = m_db.GetChars();
+
+    for (int i = 0; i < (int)allChars.size(); ++i)
+    {
+        // ⭐ 여기가 핵심 변경 포인트 (m_type -> m_char)
+        if (allChars[i].m_char == c.m_char) 
+        {
+            totalCount++;
+            if (i == m_selectedIndex) currentRank = totalCount;
+        }
+    }
+
+    // 3. 화면 표시
+    SetDlgItemInt(IDC_EDIT_TYPE, currentRank);
+    
+    CString sTotal;
+    sTotal.Format(_T("/ %d개"), totalCount);
+    SetDlgItemText(IDC_STATIC_TYPES, sTotal);
+
     ShowComposeList(c.m_char);
 }
 
@@ -580,6 +600,77 @@ void CHanjaTypeDBDlg::OnNMClickListChars(NMHDR* pNMHDR, LRESULT* pResult)
     LoadSheetImage();
     UpdateSelectedInfo();
     ShowSelectedCharImage();
+
+    *pResult = 0;
+}
+
+// =======================
+// 활자 정보 스핀 컨트롤 (같은 활자 찾아서 이동)
+// =======================
+// =======================
+// 활자 정보 스핀 컨트롤 (같은 글자 찾아서 이동)
+// =======================
+void CHanjaTypeDBDlg::OnDeltaposSpinType(NMHDR* pNMHDR, LRESULT* pResult)
+{
+    LPNMUPDOWN pNMUpDown = reinterpret_cast<LPNMUPDOWN>(pNMHDR);
+
+    if (m_selectedIndex < 0) {
+        *pResult = 0;
+        return;
+    }
+
+    // 1. 현재 글자(m_char)와 똑같은 것들을 다 찾음
+    std::vector<int> sameCharIndices;
+    const auto& allChars = m_db.GetChars();
+    CString currentChar = allChars[m_selectedIndex].m_char; // ⭐ m_type -> m_char 변경
+
+    int currentIndexInList = -1;
+    for (int i = 0; i < (int)allChars.size(); ++i)
+    {
+        // ⭐ 핵심 변경: 글자 코드가 같은지 비교
+        if (allChars[i].m_char == currentChar)
+        {
+            if (i == m_selectedIndex) currentIndexInList = (int)sameCharIndices.size();
+            sameCharIndices.push_back(i);
+        }
+    }
+
+    if (sameCharIndices.empty()) {
+        *pResult = 0;
+        return;
+    }
+
+    // 2. 위/아래 버튼에 따라 순서 이동
+    int change = 0;
+    if (pNMUpDown->iDelta < 0) change = 1;  // 위 버튼: 다음
+    if (pNMUpDown->iDelta > 0) change = -1; // 아래 버튼: 이전
+
+    int nextIndexInList = currentIndexInList + change;
+
+    // 범위 체크
+    if (nextIndexInList < 0) nextIndexInList = 0;
+    if (nextIndexInList >= (int)sameCharIndices.size()) nextIndexInList = (int)sameCharIndices.size() - 1;
+
+    // 3. 이동
+    if (nextIndexInList != currentIndexInList)
+    {
+        int newGlobalIndex = sameCharIndices[nextIndexInList];
+        const auto& target = allChars[newGlobalIndex];
+
+        // 페이지가 다르면 이동
+        if (target.m_sheet != m_curSheet)
+        {
+            m_curSheet = target.m_sheet;
+            SetDlgItemInt(IDC_EDIT_SHEET, m_curSheet);
+        }
+
+        m_selectedIndex = newGlobalIndex;
+
+        // 화면 갱신
+        LoadSheetImage();
+        UpdateSelectedInfo();
+        ShowSelectedCharImage();
+    }
 
     *pResult = 0;
 }

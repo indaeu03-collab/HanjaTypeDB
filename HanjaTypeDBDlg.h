@@ -50,6 +50,7 @@ private:
     CStatic* m_pInfoCtrl = nullptr;
     CListCtrl m_listCompose;
     CSpinButtonCtrl m_spinSheet;
+    CSpinButtonCtrl m_spinType;
     // ⭐ [추가] 책 이름 표시할 콤보박스
     CComboBox m_comboBook;
 
@@ -61,4 +62,5 @@ private:
     void ShowSelectedCharImage();
     bool FindCharImageRecursive(const CString& root, CString& outPath);
     void UpdateStatistics();
+    afx_msg void OnDeltaposSpinType(NMHDR* pNMHDR, LRESULT* pResult);
 };
