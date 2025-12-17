@@ -1,7 +1,7 @@
 ﻿#pragma once
-
 #include "TypeDB.h"
 #include <atlimage.h>
+#include <set>
 
 class CHanjaTypeDBDlg : public CDialogEx
 {
@@ -21,40 +21,44 @@ protected:
     afx_msg HCURSOR OnQueryDragIcon();
     afx_msg void OnBnClickedButtonOpen();
     afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
+    afx_msg void OnDeltaposSpinSheet(NMHDR* pNMHDR, LRESULT* pResult);
+
+    // ⭐ [추가] 리스트 컨트롤 클릭 이벤트
+    afx_msg void OnNMClickListChars(NMHDR* pNMHDR, LRESULT* pResult);
 
     DECLARE_MESSAGE_MAP()
 
 private:
-    // 아이콘
     HICON m_hIcon = nullptr;
-
-    // DB
     CTypeDB m_db;
 
-    // 경로 / 상태
     CString m_bookPath;
     int     m_curSheet = 1;
     int     m_selectedIndex = -1;
 
-    // 스캔 장 이미지
+    // 메인 스캔 이미지
     CImage   m_sheetImage;
     CStatic* m_pSheetCtrl = nullptr;
 
-    // 선택 글자 이미지
+    // 오른쪽 위 글자 이미지 (2D)
     CImage   m_charImage;
     CStatic* m_pCharCtrl = nullptr;
 
-    // 정보 표시
-    CStatic* m_pInfoCtrl = nullptr;
+    // ⭐ [추가] 오른쪽 아래 선택 글자 이미지 컨트롤
+    CStatic* m_pSelCharCtrl = nullptr;
 
-    // 구성 글자 리스트
+    CStatic* m_pInfoCtrl = nullptr;
     CListCtrl m_listCompose;
+    CSpinButtonCtrl m_spinSheet;
+    // ⭐ [추가] 책 이름 표시할 콤보박스
+    CComboBox m_comboBook;
 
 private:
-    // 내부 함수
     CString GetBookRoot() const;
     void LoadSheetImage();
     void UpdateSelectedInfo();
     void ShowComposeList(const CString& targetChar);
     void ShowSelectedCharImage();
+    bool FindCharImageRecursive(const CString& root, CString& outPath);
+    void UpdateStatistics();
 };

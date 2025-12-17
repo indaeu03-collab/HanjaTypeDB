@@ -42,6 +42,14 @@ void CHanjaTypeDBDlg::DoDataExchange(CDataExchange* pDX)
 {
     CDialogEx::DoDataExchange(pDX);
     DDX_Control(pDX, IDC_LIST_CHARS, m_listCompose);
+    DDX_Control(pDX, IDC_SPIN_SHEET, m_spinSheet);
+
+    // ⭐ [수정됨] ID를 IDC_EDIT_BOOKNAME으로 변경했습니다!
+    // (변수 이름 m_comboBook은 그대로 써도 상관없습니다)
+    DDX_Control(pDX, IDC_EDIT_BOOKNAME, m_comboBook);
+
+    // 안전하게 컨트롤 포인터 가져오기
+    m_pSheetCtrl = (CStatic*)GetDlgItem(IDC_STATIC_SHEET);
 }
 
 BEGIN_MESSAGE_MAP(CHanjaTypeDBDlg, CDialogEx)
@@ -50,6 +58,10 @@ BEGIN_MESSAGE_MAP(CHanjaTypeDBDlg, CDialogEx)
     ON_WM_QUERYDRAGICON()
     ON_BN_CLICKED(IDC_BUTTON_OPEN, &CHanjaTypeDBDlg::OnBnClickedButtonOpen)
     ON_WM_LBUTTONDOWN()
+    ON_NOTIFY(UDN_DELTAPOS, IDC_SPIN_SHEET, &CHanjaTypeDBDlg::OnDeltaposSpinSheet)
+
+    // ⭐ [추가] 리스트 클릭하면 함수 실행 연결
+    ON_NOTIFY(NM_CLICK, IDC_LIST_CHARS, &CHanjaTypeDBDlg::OnNMClickListChars)
 END_MESSAGE_MAP()
 
 BOOL CHanjaTypeDBDlg::OnInitDialog()
@@ -59,19 +71,22 @@ BOOL CHanjaTypeDBDlg::OnInitDialog()
     SetIcon(m_hIcon, TRUE);
     SetIcon(m_hIcon, FALSE);
 
+    // 컨트롤 포인터 가져오기 (기존 ID들)
     m_pSheetCtrl = (CStatic*)GetDlgItem(IDC_STATIC_SHEET);
-    m_pCharCtrl = (CStatic*)GetDlgItem(IDC_STATIC_CHARIMG); // 🔥 네 ID
+    m_pCharCtrl = (CStatic*)GetDlgItem(IDC_STATIC_CHARIMG);
     m_pInfoCtrl = (CStatic*)GetDlgItem(IDC_STATIC_INFO);
 
-    // 구성 글자 리스트
+    // ⭐ [수정됨] 요청하신 ID(IDC_STATIC_SELECTCHAR)로 연결했습니다!
+    m_pSelCharCtrl = (CStatic*)GetDlgItem(IDC_STATIC_SELECTCHAR);
+
+    // 리스트 설정
     m_listCompose.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-    m_listCompose.InsertColumn(0, _T("장"), LVCFMT_CENTER, 50);
-    m_listCompose.InsertColumn(1, _T("행"), LVCFMT_CENTER, 50);
-    m_listCompose.InsertColumn(2, _T("번"), LVCFMT_CENTER, 50);
+    m_listCompose.InsertColumn(0, _T("장"), LVCFMT_CENTER, 40);
+    m_listCompose.InsertColumn(1, _T("행"), LVCFMT_CENTER, 40);
+    m_listCompose.InsertColumn(2, _T("번"), LVCFMT_CENTER, 40);
 
     return TRUE;
 }
-
 void CHanjaTypeDBDlg::OnSysCommand(UINT nID, LPARAM lParam)
 {
     if ((nID & 0xFFF0) == IDM_ABOUTBOX)
@@ -104,10 +119,33 @@ void CHanjaTypeDBDlg::OnBnClickedButtonOpen()
         return;
     }
 
+    // ==========================================
+    // ⭐ 폴더 이름(책 이름) 추출해서 콤보박스에 넣기
+    // ==========================================
+    // 1. 파일 경로에서 폴더 경로만 떼어내기
+    CString folderPath = m_bookPath.Left(m_bookPath.ReverseFind('\\'));
+
+    // 2. 맨 마지막 폴더 이름 가져오기 (예: 월인천강지곡 권상)
+    int nPos = folderPath.ReverseFind('\\');
+    CString bookName = folderPath.Mid(nPos + 1);
+
+    // 3. 콤보박스(IDC_EDIT_BOOKNAME)에 넣고 선택하기
+    m_comboBook.ResetContent();      // 기존 내용 지우기
+    m_comboBook.AddString(bookName); // 책 이름 추가
+    m_comboBook.SetCurSel(0);        // 첫 번째 항목 선택
+
+    // ==========================================
+
     m_curSheet = 1;
     LoadSheetImage();
-}
 
+    // 스핀 컨트롤 설정
+    m_spinSheet.SetBuddy(GetDlgItem(IDC_EDIT_SHEET));
+    m_spinSheet.SetRange(1, m_db.GetSheetCount());
+    m_spinSheet.SetPos(1);
+
+    SetDlgItemInt(IDC_EDIT_SHEET, 1);
+}
 // =======================
 // 장 이미지 + 박스
 // =======================
@@ -157,8 +195,8 @@ void CHanjaTypeDBDlg::LoadSheetImage()
         SRCCOPY
     );
 
-    CPen redPen(PS_SOLID, 2, RGB(255, 0, 0));
-    CPen bluePen(PS_SOLID, 3, RGB(0, 0, 255));
+    CPen redPen(PS_SOLID, 3, RGB(255, 0, 0));
+    CPen greenPen(PS_SOLID, 2, RGB(0, 255, 0));
 
     CBrush* oldBrush =
         memDC.SelectObject(CBrush::FromHandle((HBRUSH)GetStockObject(NULL_BRUSH)));
@@ -177,8 +215,8 @@ void CHanjaTypeDBDlg::LoadSheetImage()
 
         CPen* oldPen =
             (i == m_selectedIndex)
-            ? memDC.SelectObject(&bluePen)
-            : memDC.SelectObject(&redPen);
+            ? memDC.SelectObject(&redPen)
+            : memDC.SelectObject(&greenPen);
 
         memDC.Rectangle(x, y, x + w, y + h);
         memDC.SelectObject(oldPen);
@@ -190,6 +228,7 @@ void CHanjaTypeDBDlg::LoadSheetImage()
 
     memDC.SelectObject(oldBmp);
     m_pSheetCtrl->ReleaseDC(pDC);
+    UpdateStatistics();
 }
 
 
@@ -289,44 +328,44 @@ void CHanjaTypeDBDlg::ShowComposeList(const CString& targetChar)
 // =======================
 void CHanjaTypeDBDlg::ShowSelectedCharImage()
 {
-    if (!m_pCharCtrl || m_selectedIndex < 0)
-        return;
+    if (!m_pCharCtrl || m_selectedIndex < 0) return;
 
     const auto& c = m_db.GetChars()[m_selectedIndex];
+    CString bookRoot = m_bookPath.Left(m_bookPath.ReverseFind('\\'));
 
-    CString root = GetBookRoot();
+    // 이미지 경로 찾기 (m_char 기준)
+    CString charRoot;
+    charRoot.Format(_T("%s\\03_type\\%s"), bookRoot.GetString(), c.m_char.GetString());
 
-    CString imgPath;
-    imgPath.Format(
-        _T("%s\\03_type\\%s\\%d\\%s.png"),
-        root.GetString(),
-        c.m_char.GetString(),   // 110A11A10000
-        c.m_line,               // 8 (폴더)
-        c.m_filename.GetString()// 2_6190_3705
-    );
-
-    if (!m_charImage.IsNull())
-        m_charImage.Destroy();
-
-    if (FAILED(m_charImage.Load(imgPath)))
+    CString foundImage;
+    if (!FindCharImageRecursive(charRoot, foundImage))
     {
-        AfxMessageBox(_T("글자 이미지 없음:\n") + imgPath);
+        m_pCharCtrl->SetWindowText(_T("이미지 없음"));
         return;
     }
 
+    if (!m_charImage.IsNull()) m_charImage.Destroy();
+    if (FAILED(m_charImage.Load(foundImage))) return;
+
+    // (1) 우측 상단 표시에 그리기
     CDC* pDC = m_pCharCtrl->GetDC();
-    CRect rc;
-    m_pCharCtrl->GetClientRect(&rc);
-
-    m_charImage.StretchBlt(
-        pDC->m_hDC,
-        0, 0,
-        rc.Width(), rc.Height(),
-        SRCCOPY
-    );
-
+    CRect rc; m_pCharCtrl->GetClientRect(&rc);
+    pDC->FillSolidRect(rc, RGB(255, 255, 255)); // 흰 배경
+    m_charImage.StretchBlt(pDC->m_hDC, 0, 0, rc.Width(), rc.Height(), SRCCOPY);
     m_pCharCtrl->ReleaseDC(pDC);
+
+    // (2) ⭐ [추가] 우측 하단 [선택 글자] 에도 똑같이 그리기
+    if (m_pSelCharCtrl) {
+        CDC* pSelDC = m_pSelCharCtrl->GetDC();
+        CRect rcSel;
+        m_pSelCharCtrl->GetClientRect(&rcSel);
+        pSelDC->FillSolidRect(rcSel, RGB(255, 255, 255)); // 흰 배경
+        m_charImage.StretchBlt(pSelDC->m_hDC, 0, 0, rcSel.Width(), rcSel.Height(), SRCCOPY);
+        m_pSelCharCtrl->ReleaseDC(pSelDC);
+    }
 }
+
+
 
 
 
@@ -347,4 +386,206 @@ void CHanjaTypeDBDlg::OnPaint()
 HCURSOR CHanjaTypeDBDlg::OnQueryDragIcon()
 {
     return static_cast<HCURSOR>(m_hIcon);
+}
+
+bool CHanjaTypeDBDlg::FindCharImageRecursive(
+    const CString& root,
+    CString& outPath
+)
+{
+    CFileFind finder;
+    BOOL bWorking = finder.FindFile(root + _T("\\*.*"));
+
+    while (bWorking)
+    {
+        bWorking = finder.FindNextFile();
+
+        if (finder.IsDots())
+            continue;
+
+        if (finder.IsDirectory())
+        {
+            // 🔁 하위 폴더 재귀 탐색
+            if (FindCharImageRecursive(finder.GetFilePath(), outPath))
+            {
+                finder.Close();
+                return true;
+            }
+        }
+        else
+        {
+            CString name = finder.GetFileName();
+            name.MakeLower();
+
+            if (name.Right(4) == _T(".png"))
+            {
+                outPath = finder.GetFilePath();
+                finder.Close();
+                return true;
+            }
+        }
+    }
+
+    finder.Close();
+    return false;
+}
+
+// =======================
+// 스핀 컨트롤(화살표) 눌렀을 때 페이지 이동
+// =======================
+void CHanjaTypeDBDlg::OnDeltaposSpinSheet(NMHDR* pNMHDR, LRESULT* pResult)
+{
+    LPNMUPDOWN pNMUpDown = reinterpret_cast<LPNMUPDOWN>(pNMHDR);
+
+    if (m_db.GetSheetCount() <= 0)
+    {
+        *pResult = 0;
+        return;
+    }
+
+    // 1. 페이지 계산
+    int change = 0;
+    if (pNMUpDown->iDelta < 0) change = 1;
+    if (pNMUpDown->iDelta > 0) change = -1;
+
+    int nextSheet = m_curSheet + change;
+
+    if (nextSheet < 1) nextSheet = 1;
+    if (nextSheet > m_db.GetSheetCount()) nextSheet = m_db.GetSheetCount();
+
+    // 2. 페이지가 바뀌었을 때
+    if (nextSheet != m_curSheet)
+    {
+        m_curSheet = nextSheet;
+
+        // ⭐ [추가됨] 기존 선택(파란색) 정보 싹 지우기 (초기화)
+        m_selectedIndex = -1;                 // 선택된 번호 없음으로 변경
+        m_pInfoCtrl->SetWindowText(_T(""));   // 글자 정보 텍스트 지우기
+        m_listCompose.DeleteAllItems();       // 리스트 목록 지우기
+
+        // 오른쪽 글자 이미지도 흰색으로 덮어서 지우기
+        if (m_pCharCtrl) {
+            CDC* pDC = m_pCharCtrl->GetDC();
+            CRect rc; m_pCharCtrl->GetClientRect(&rc);
+            pDC->FillSolidRect(rc, RGB(255, 255, 255));
+            m_pCharCtrl->ReleaseDC(pDC);
+        }
+
+        // 3. 화면 갱신
+        LoadSheetImage();
+        SetDlgItemInt(IDC_EDIT_SHEET, m_curSheet);
+    }
+
+    *pResult = 0;
+}
+
+// =======================
+// 통계 계산 및 표시 함수
+// =======================
+void CHanjaTypeDBDlg::UpdateStatistics()
+{
+    // DB가 비어있으면 아무것도 안 함
+    if (m_db.GetChars().empty()) return;
+
+    const auto& chars = m_db.GetChars();
+
+    // 1. 책 전체 통계용 (중복 제거를 위해 set 사용)
+    std::set<CString> totalCharKinds; // 글자 종류 (가, 나, 다...)
+    std::set<CString> totalTypeKinds; // 활자 종류 (자료번호 기준)
+
+    // 2. 장내(현재 페이지) 통계용
+    int sheetCount = 0;
+    std::set<CString> sheetCharKinds;
+    std::set<CString> sheetTypeKinds;
+
+    for (const auto& c : chars)
+    {
+        // [책 전체] 무조건 넣기
+        totalCharKinds.insert(c.m_char);
+        totalTypeKinds.insert(c.m_type);
+
+        // [장내] 현재 페이지랑 같으면 넣기
+        if (c.m_sheet == m_curSheet)
+        {
+            sheetCount++;
+            sheetCharKinds.insert(c.m_char);
+            sheetTypeKinds.insert(c.m_type);
+        }
+    }
+
+    // 화면에 글자 예쁘게 출력하기
+    CString str;
+
+    // [책 전체] 출력
+    str.Format(_T("%d"), (int)chars.size());
+    SetDlgItemText(IDC_STATIC_T_COUNT, str);
+
+    str.Format(_T("%d"), (int)totalCharKinds.size());
+    SetDlgItemText(IDC_STATIC_T_KIND, str);
+
+    str.Format(_T("%d"), (int)totalTypeKinds.size());
+    SetDlgItemText(IDC_STATIC_T_TYPE, str);
+
+    // [장내] 출력
+    str.Format(_T("%d"), sheetCount);
+    SetDlgItemText(IDC_STATIC_S_COUNT, str);
+
+    str.Format(_T("%d"), (int)sheetCharKinds.size());
+    SetDlgItemText(IDC_STATIC_S_KIND, str);
+
+    str.Format(_T("%d"), (int)sheetTypeKinds.size());
+    SetDlgItemText(IDC_STATIC_S_TYPE, str);
+}
+
+// =======================
+// 리스트 클릭 시 해당 글자로 이동
+// =======================
+// =======================
+// 리스트 클릭 시 해당 글자로 이동
+// =======================
+void CHanjaTypeDBDlg::OnNMClickListChars(NMHDR* pNMHDR, LRESULT* pResult)
+{
+    LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+
+    // 선택된 줄이 없으면 무시
+    int nItem = pNMItemActivate->iItem;
+    if (nItem == -1) {
+        *pResult = 0;
+        return;
+    }
+
+    // 리스트에 적힌 장, 행, 번호 가져오기
+    CString sSheet = m_listCompose.GetItemText(nItem, 0);
+    CString sLine = m_listCompose.GetItemText(nItem, 1);
+    CString sOrder = m_listCompose.GetItemText(nItem, 2);
+
+    int targetSheet = _ttoi(sSheet);
+    int targetLine = _ttoi(sLine);
+    int targetOrder = _ttoi(sOrder);
+
+    // 1. 다른 페이지면 페이지 이동
+    if (targetSheet != m_curSheet)
+    {
+        m_curSheet = targetSheet;
+        SetDlgItemInt(IDC_EDIT_SHEET, m_curSheet); // 스핀 컨트롤 옆 숫자 갱신
+    }
+
+    // 2. 해당 글자 찾아서 선택하기 (DB 검색)
+    const auto& chars = m_db.GetChars();
+    for (int i = 0; i < (int)chars.size(); ++i)
+    {
+        const auto& c = chars[i];
+        if (c.m_sheet == targetSheet && c.m_line == targetLine && c.m_order == targetOrder)
+        {
+            m_selectedIndex = i; // 찾았다! 선택 인덱스 업데이트
+            break;
+        }
+    }
+
+    // 3. 화면 갱신
+    LoadSheetImage();
+    UpdateSelectedInfo();
+    ShowSelectedCharImage();
+
+    *pResult = 0;
 }
