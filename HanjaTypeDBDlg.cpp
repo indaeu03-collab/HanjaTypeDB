@@ -47,9 +47,6 @@ void CHanjaTypeDBDlg::DoDataExchange(CDataExchange* pDX)
     // ⭐ [수정됨] ID를 IDC_EDIT_BOOKNAME으로 변경했습니다!
     // (변수 이름 m_comboBook은 그대로 써도 상관없습니다)
     DDX_Control(pDX, IDC_EDIT_BOOKNAME, m_comboBook);
-
-    // 안전하게 컨트롤 포인터 가져오기
-    m_pSheetCtrl = (CStatic*)GetDlgItem(IDC_STATIC_SHEET);
 }
 
 BEGIN_MESSAGE_MAP(CHanjaTypeDBDlg, CDialogEx)
@@ -537,9 +534,6 @@ void CHanjaTypeDBDlg::UpdateStatistics()
     SetDlgItemText(IDC_STATIC_S_TYPE, str);
 }
 
-// =======================
-// 리스트 클릭 시 해당 글자로 이동
-// =======================
 // =======================
 // 리스트 클릭 시 해당 글자로 이동
 // =======================
