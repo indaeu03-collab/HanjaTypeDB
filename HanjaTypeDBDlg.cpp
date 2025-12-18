@@ -73,10 +73,11 @@ BOOL CHanjaTypeDBDlg::OnInitDialog()
     m_pInfoCtrl = (CStatic*)GetDlgItem(IDC_STATIC_INFO);
     m_pSelCharCtrl = (CStatic*)GetDlgItem(IDC_STATIC_SELECTCHAR);
 
-    // ⭐ [수정됨] "구분" 칸 삭제 -> "장, 행, 번"만 표시
+    // ⭐ [복구] 리스트 컬럼을 "장, 행, 번"으로 설정
     m_listCompose.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 
-    while (m_listCompose.DeleteColumn(0)); // 기존 컬럼 싹 지우기
+    // 기존 컬럼 깨끗하게 비우기
+    while (m_listCompose.DeleteColumn(0));
 
     m_listCompose.InsertColumn(0, _T("장"), LVCFMT_CENTER, 50);
     m_listCompose.InsertColumn(1, _T("행"), LVCFMT_CENTER, 50);
@@ -324,73 +325,41 @@ void CHanjaTypeDBDlg::UpdateSelectedInfo()
     ShowComposeList(c.m_char);
 }
 // =======================
-// 구성 글자 리스트 (구분 없이 위치만 표시)
+// 구성 글자 리스트 (같은 글자 위치 목록 표시)
 // =======================
 void CHanjaTypeDBDlg::ShowComposeList(const CString& targetChar)
 {
     m_listCompose.DeleteAllItems();
-    if (targetChar.GetLength() < 12) return;
 
-    // 1. 검색할 코드 만들기 (나머지는 0으로 채움)
-    CString codeCho = targetChar.Left(4) + _T("00000000");
-    CString codeJung = _T("0000") + targetChar.Mid(4, 4) + _T("0000");
-    CString codeJong = _T("00000000") + targetChar.Right(4);
-
-    // 검색 대상 (0:초성, 1:중성, 2:종성)
-    std::vector<CString> targetCodes;
-    targetCodes.push_back(codeCho);
-    targetCodes.push_back(codeJung);
-
-    if (targetChar.Right(4) != _T("0000"))
-        targetCodes.push_back(codeJong);
-    else
-        targetCodes.push_back(_T("")); // 받침 없으면 빈 거
-
-    // 2. DB에서 위치 찾기
-    const auto& chars = m_db.GetChars();
+    // DB 전체를 뒤져서 같은 글자 찾기
     int row = 0;
+    const auto& chars = m_db.GetChars();
 
-    for (const auto& code : targetCodes)
+    for (int i = 0; i < (int)chars.size(); ++i)
     {
-        // 받침 없는 경우 처리 ("-" 표시)
-        if (code.IsEmpty())
-        {
-            int nItem = m_listCompose.InsertItem(row, _T("-"));
-            m_listCompose.SetItemText(nItem, 1, _T("-"));
-            m_listCompose.SetItemText(nItem, 2, _T("-"));
-            row++;
-            continue;
-        }
+        const auto& c = chars[i];
 
-        bool bFound = false;
-
-        // DB 검색
-        for (const auto& c : chars)
+        // ⭐ 글자 코드(m_char)가 같으면 리스트에 추가
+        if (c.m_char == targetChar)
         {
-            if (c.m_char == code) // 찾았다!
+            CString sSheet, sLine, sOrder;
+            sSheet.Format(_T("%d"), c.m_sheet);
+            sLine.Format(_T("%d"), c.m_line);
+            sOrder.Format(_T("%d"), c.m_order);
+
+            m_listCompose.InsertItem(row, sSheet);     // 0번 컬럼: 장
+            m_listCompose.SetItemText(row, 1, sLine);  // 1번 컬럼: 행
+            m_listCompose.SetItemText(row, 2, sOrder); // 2번 컬럼: 번
+
+            // 현재 내가 보고 있는 글자라면 하이라이트(선택) 표시
+            if (i == m_selectedIndex)
             {
-                CString sSheet, sLine, sOrder;
-                sSheet.Format(_T("%d"), c.m_sheet);
-                sLine.Format(_T("%d"), c.m_line);
-                sOrder.Format(_T("%d"), c.m_order);
-
-                // ⭐ [수정됨] 첫 번째 칸(0번)에 바로 '장' 번호를 넣습니다.
-                int nItem = m_listCompose.InsertItem(row, sSheet);
-                m_listCompose.SetItemText(nItem, 1, sLine);
-                m_listCompose.SetItemText(nItem, 2, sOrder);
-
-                bFound = true;
-                break;
+                m_listCompose.SetItemState(row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+                m_listCompose.EnsureVisible(row, FALSE); // 자동 스크롤
             }
-        }
 
-        if (!bFound) // 못 찾았으면 "-"
-        {
-            int nItem = m_listCompose.InsertItem(row, _T("-"));
-            m_listCompose.SetItemText(nItem, 1, _T("-"));
-            m_listCompose.SetItemText(nItem, 2, _T("-"));
+            row++;
         }
-        row++;
     }
 }
 
@@ -609,42 +578,34 @@ void CHanjaTypeDBDlg::UpdateStatistics()
 // =======================
 // 리스트 클릭 시 해당 위치로 이동
 // =======================
-// =======================
-// 리스트 클릭 시 해당 위치로 이동
-// =======================
 void CHanjaTypeDBDlg::OnNMClickListChars(NMHDR* pNMHDR, LRESULT* pResult)
 {
     LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 
+    // 빈 공간 클릭 방지
     int nItem = pNMItemActivate->iItem;
     if (nItem == -1) {
         *pResult = 0;
         return;
     }
 
-    // ⭐ [수정됨] 칸 번호가 당겨졌습니다. (1,2,3 -> 0,1,2)
+    // 1. 리스트에 적힌 장, 행, 번호 읽어오기 (0, 1, 2 순서)
     CString sSheet = m_listCompose.GetItemText(nItem, 0); // 장
     CString sLine = m_listCompose.GetItemText(nItem, 1); // 행
     CString sOrder = m_listCompose.GetItemText(nItem, 2); // 번
-
-    // "-" (없음) 이면 무시
-    if (sSheet == _T("-") || sSheet.IsEmpty()) {
-        *pResult = 0;
-        return;
-    }
 
     int targetSheet = _ttoi(sSheet);
     int targetLine = _ttoi(sLine);
     int targetOrder = _ttoi(sOrder);
 
-    // 1. 페이지 이동
+    // 2. 다른 페이지면 페이지 이동
     if (targetSheet != m_curSheet)
     {
         m_curSheet = targetSheet;
         SetDlgItemInt(IDC_EDIT_SHEET, m_curSheet);
     }
 
-    // 2. 해당 위치의 글자 선택
+    // 3. DB에서 해당 글자(위치) 찾아서 선택하기
     const auto& chars = m_db.GetChars();
     for (int i = 0; i < (int)chars.size(); ++i)
     {
@@ -656,21 +617,26 @@ void CHanjaTypeDBDlg::OnNMClickListChars(NMHDR* pNMHDR, LRESULT* pResult)
         }
     }
 
-    // 3. 화면 갱신
+    // 4. 화면 갱신
     LoadSheetImage();
 
+    // 정보창 텍스트 업데이트
     if (m_pInfoCtrl && m_selectedIndex >= 0)
     {
         const auto& c = chars[m_selectedIndex];
         CString text;
         text.Format(_T("%s\n\n%d장 %d행 %d번"), c.m_char.GetString(), c.m_sheet, c.m_line, c.m_order);
         m_pInfoCtrl->SetWindowText(text);
+
+        // 스핀 컨트롤 숫자(순서) 갱신을 위해 호출
+        // (주의: 여기서 ShowComposeList가 또 호출되지만 기능상 문제없음)
+        UpdateSelectedInfo();
     }
+
     ShowSelectedCharImage();
 
     *pResult = 0;
 }
-
 // =======================
 // 활자 정보 스핀 컨트롤 (같은 활자 찾아서 이동)
 // =======================
